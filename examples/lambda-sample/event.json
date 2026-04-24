@@ -1,0 +1,16 @@
+{
+  "DurableExecutionArn": "arn:test:execution:manual",
+  "CheckpointToken": "manual-token-1",
+  "InitialExecutionState": {
+    "Operations": [
+      {
+        "Id": "execution-root",
+        "Type": "EXECUTION",
+        "Status": "STARTED",
+        "ExecutionDetails": {
+          "InputPayload": "{\"name\":\"alice\"}"
+        }
+      }
+    ]
+  }
+}
