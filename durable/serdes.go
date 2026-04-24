@@ -5,20 +5,29 @@ import (
 	"fmt"
 )
 
+// SerdesContext provides operation metadata to serializers.
 type SerdesContext struct {
-	EntityID            string
+	// EntityID is the durable operation ID before backend hashing.
+	EntityID string
+	// DurableExecutionArn identifies the current durable execution.
 	DurableExecutionArn string
 }
 
+// Serdes serializes values into checkpoint payload strings and deserializes
+// them back into Go values.
 type Serdes interface {
 	Serialize(value any, ctx SerdesContext) (string, error)
 	Deserialize(data string, ctx SerdesContext) (any, error)
 }
 
+// JSONSerdes serializes values with encoding/json.
 type JSONSerdes struct{}
 
+// PassThroughSerdes passes string values through unchanged and JSON-serializes
+// non-string values.
 type PassThroughSerdes struct{}
 
+// Serialize converts value to a JSON string.
 func (JSONSerdes) Serialize(value any, _ SerdesContext) (string, error) {
 	if value == nil {
 		return "", nil
@@ -30,6 +39,7 @@ func (JSONSerdes) Serialize(value any, _ SerdesContext) (string, error) {
 	return string(b), nil
 }
 
+// Deserialize converts a JSON string to a Go value.
 func (JSONSerdes) Deserialize(data string, _ SerdesContext) (any, error) {
 	if data == "" {
 		return nil, nil
@@ -41,6 +51,7 @@ func (JSONSerdes) Deserialize(data string, _ SerdesContext) (any, error) {
 	return v, nil
 }
 
+// Serialize returns string values unchanged and JSON-serializes other values.
 func (PassThroughSerdes) Serialize(value any, _ SerdesContext) (string, error) {
 	if value == nil {
 		return "", nil
@@ -55,10 +66,13 @@ func (PassThroughSerdes) Serialize(value any, _ SerdesContext) (string, error) {
 	return string(b), nil
 }
 
+// Deserialize returns data unchanged.
 func (PassThroughSerdes) Deserialize(data string, _ SerdesContext) (any, error) {
 	return data, nil
 }
 
+// SafeSerialize serializes value and terminates the invocation on serialization
+// failure.
 func SafeSerialize(serdes Serdes, value any, stepID, stepName string, tm *TerminationManager, durableExecutionArn string) (string, error) {
 	if serdes == nil {
 		serdes = JSONSerdes{}
@@ -72,6 +86,8 @@ func SafeSerialize(serdes Serdes, value any, stepID, stepName string, tm *Termin
 	return payload, nil
 }
 
+// SafeDeserialize deserializes data and terminates the invocation on
+// deserialization failure.
 func SafeDeserialize(serdes Serdes, data string, stepID, stepName string, tm *TerminationManager, durableExecutionArn string) (any, error) {
 	if serdes == nil {
 		serdes = JSONSerdes{}

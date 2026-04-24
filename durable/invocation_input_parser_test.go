@@ -67,4 +67,3 @@ func TestParseInvocationInput_AcceptsEpochNumberTimestamp(t *testing.T) {
 		t.Fatalf("unexpected timestamp: %s", got.UTC().Format(time.RFC3339Nano))
 	}
 }
-

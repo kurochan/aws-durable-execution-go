@@ -2,8 +2,11 @@ package durable
 
 import "encoding/json"
 
+// BatchResultSerdes serializes BatchResult values for Map, Parallel, and
+// ExecuteConcurrently.
 type BatchResultSerdes struct{}
 
+// Serialize converts a BatchResult or compatible value to JSON.
 func (BatchResultSerdes) Serialize(value any, _ SerdesContext) (string, error) {
 	if value == nil {
 		return "", nil
@@ -30,6 +33,7 @@ func (BatchResultSerdes) Serialize(value any, _ SerdesContext) (string, error) {
 	}
 }
 
+// Deserialize converts JSON into a *BatchResult.
 func (BatchResultSerdes) Deserialize(data string, _ SerdesContext) (any, error) {
 	if data == "" {
 		return &BatchResult{

@@ -8,6 +8,8 @@ type operationDescriptor struct {
 	SubType OperationSubType
 }
 
+// ValidateReplayConsistency verifies that the current durable operation matches
+// the checkpointed operation at the same call position.
 func ValidateReplayConsistency(stepID string, current operationDescriptor, checkpointData *Operation, execCtx *ExecutionContext) error {
 	if checkpointData == nil || checkpointData.Type == "" {
 		return nil

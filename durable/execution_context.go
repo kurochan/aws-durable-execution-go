@@ -6,6 +6,10 @@ import (
 	"sync"
 )
 
+// ExecutionContext holds durable execution state for one wrapped handler
+// invocation.
+//
+// Most applications interact with DurableContext instead of ExecutionContext.
 type ExecutionContext struct {
 	durableExecutionClient DurableExecutionClient
 	stepData               map[string]Operation // hashed IDs from backend
@@ -17,12 +21,21 @@ type ExecutionContext struct {
 	tenantID               string
 }
 
+// DurableExecutionClient returns the backend client for this execution.
 func (e *ExecutionContext) DurableExecutionClient() DurableExecutionClient {
 	return e.durableExecutionClient
 }
-func (e *ExecutionContext) TerminationManager() *TerminationManager { return e.terminationManager }
-func (e *ExecutionContext) DurableExecutionArn() string             { return e.durableExecutionArn }
 
+// TerminationManager returns the invocation termination manager.
+func (e *ExecutionContext) TerminationManager() *TerminationManager { return e.terminationManager }
+
+// DurableExecutionArn returns the durable execution ARN for this invocation.
+func (e *ExecutionContext) DurableExecutionArn() string { return e.durableExecutionArn }
+
+// GetStepData returns checkpoint data for a durable operation ID.
+//
+// stepID is the SDK-generated unhashed operation ID. The lookup hashes it to
+// match backend operation IDs.
 func (e *ExecutionContext) GetStepData(stepID string) *Operation {
 	hashed := HashID(stepID)
 	e.stepDataMu.RLock()
@@ -44,6 +57,8 @@ func (e *ExecutionContext) setStepData(op Operation) {
 	e.stepDataMu.Unlock()
 }
 
+// InitializeExecutionContext constructs an ExecutionContext from InvocationInput
+// and loads any additional paginated backend state.
 func InitializeExecutionContext(ctx context.Context, input InvocationInput, client DurableExecutionClient, requestID, tenantID string) (*ExecutionContext, DurableExecutionMode, string, error) {
 	if ctx == nil {
 		ctx = context.Background()

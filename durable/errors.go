@@ -5,6 +5,8 @@ import (
 	"fmt"
 )
 
+// DurableOperationError is the common error type used for durable operation
+// failures that can be serialized into ErrorObject.
 type DurableOperationError struct {
 	Type    string
 	Message string
@@ -12,6 +14,7 @@ type DurableOperationError struct {
 	Data    string
 }
 
+// Error returns the durable operation error message.
 func (e *DurableOperationError) Error() string {
 	if e == nil {
 		return "<nil>"
@@ -19,6 +22,7 @@ func (e *DurableOperationError) Error() string {
 	return e.Message
 }
 
+// Unwrap returns the underlying cause.
 func (e *DurableOperationError) Unwrap() error {
 	if e == nil {
 		return nil
@@ -26,6 +30,7 @@ func (e *DurableOperationError) Unwrap() error {
 	return e.Cause
 }
 
+// ToErrorObject converts e into a serializable ErrorObject.
 func (e *DurableOperationError) ToErrorObject() *ErrorObject {
 	if e == nil {
 		return nil
@@ -41,6 +46,8 @@ func (e *DurableOperationError) ToErrorObject() *ErrorObject {
 	return eo
 }
 
+// DurableOperationErrorFromErrorObject converts a checkpointed ErrorObject into
+// a Go error.
 func DurableOperationErrorFromErrorObject(eo *ErrorObject) error {
 	if eo == nil {
 		return errors.New("unknown durable operation error")
@@ -56,6 +63,7 @@ func DurableOperationErrorFromErrorObject(eo *ErrorObject) error {
 	}
 }
 
+// NewStepError creates an error for a failed Step operation.
 func NewStepError(msg string, cause error, data string) error {
 	if msg == "" {
 		msg = "step failed"
@@ -63,6 +71,7 @@ func NewStepError(msg string, cause error, data string) error {
 	return &DurableOperationError{Type: "StepError", Message: msg, Cause: cause, Data: data}
 }
 
+// NewCallbackError creates an error for a failed callback operation.
 func NewCallbackError(msg string, cause error, data string) error {
 	if msg == "" {
 		msg = "callback failed"
@@ -70,6 +79,7 @@ func NewCallbackError(msg string, cause error, data string) error {
 	return &DurableOperationError{Type: "CallbackError", Message: msg, Cause: cause, Data: data}
 }
 
+// NewCallbackTimeoutError creates an error for a timed-out callback.
 func NewCallbackTimeoutError(msg string, cause error, data string) error {
 	if msg == "" {
 		msg = "callback timed out"
@@ -77,6 +87,8 @@ func NewCallbackTimeoutError(msg string, cause error, data string) error {
 	return &DurableOperationError{Type: "CallbackTimeoutError", Message: msg, Cause: cause, Data: data}
 }
 
+// NewCallbackSubmitterError creates an error for a failed WaitForCallback
+// submitter step.
 func NewCallbackSubmitterError(msg string, cause error, data string) error {
 	if msg == "" {
 		msg = "callback submitter failed"
@@ -84,6 +96,7 @@ func NewCallbackSubmitterError(msg string, cause error, data string) error {
 	return &DurableOperationError{Type: "CallbackSubmitterError", Message: msg, Cause: cause, Data: data}
 }
 
+// NewInvokeError creates an error for a failed chained invocation.
 func NewInvokeError(msg string, cause error, data string) error {
 	if msg == "" {
 		msg = "invoke failed"
@@ -91,6 +104,7 @@ func NewInvokeError(msg string, cause error, data string) error {
 	return &DurableOperationError{Type: "InvokeError", Message: msg, Cause: cause, Data: data}
 }
 
+// NewChildContextError creates an error for a failed child context.
 func NewChildContextError(msg string, cause error, data string) error {
 	if msg == "" {
 		msg = "child context failed"
@@ -98,6 +112,7 @@ func NewChildContextError(msg string, cause error, data string) error {
 	return &DurableOperationError{Type: "ChildContextError", Message: msg, Cause: cause, Data: data}
 }
 
+// NewWaitForConditionError creates an error for a failed WaitForCondition.
 func NewWaitForConditionError(msg string, cause error, data string) error {
 	if msg == "" {
 		msg = "wait for condition failed"
@@ -105,6 +120,8 @@ func NewWaitForConditionError(msg string, cause error, data string) error {
 	return &DurableOperationError{Type: "WaitForConditionError", Message: msg, Cause: cause, Data: data}
 }
 
+// UnrecoverableError marks an error that should stop the current invocation or
+// execution instead of being converted into InvocationStatusFailed.
 type UnrecoverableError interface {
 	error
 	TerminationReason() TerminationReason
@@ -133,14 +150,20 @@ func (u *unrecoverable) TerminationReason() TerminationReason { return u.termina
 func (u *unrecoverable) InvocationLevel() bool                { return u.invocation }
 func (u *unrecoverable) ExecutionLevel() bool                 { return u.execution }
 
+// NewUnrecoverableInvocationError creates an unrecoverable error scoped to the
+// current invocation.
 func NewUnrecoverableInvocationError(reason TerminationReason, msg string, cause error) error {
 	return &unrecoverable{message: fmt.Sprintf("[Unrecoverable Invocation] %s", msg), terminationReason: reason, cause: cause, invocation: true}
 }
 
+// NewUnrecoverableExecutionError creates an unrecoverable error scoped to the
+// whole durable execution.
 func NewUnrecoverableExecutionError(reason TerminationReason, msg string, cause error) error {
 	return &unrecoverable{message: fmt.Sprintf("[Unrecoverable Execution] %s", msg), terminationReason: reason, cause: cause, execution: true}
 }
 
+// IsUnrecoverableInvocationError reports whether err is unrecoverable at the
+// invocation level.
 func IsUnrecoverableInvocationError(err error) bool {
 	var u UnrecoverableError
 	if errors.As(err, &u) {
@@ -149,11 +172,14 @@ func IsUnrecoverableInvocationError(err error) bool {
 	return false
 }
 
+// IsUnrecoverableError reports whether err implements UnrecoverableError.
 func IsUnrecoverableError(err error) bool {
 	var u UnrecoverableError
 	return errors.As(err, &u)
 }
 
+// ClassifyCheckpointError classifies backend checkpoint errors into
+// unrecoverable invocation or execution errors.
 func ClassifyCheckpointError(err error) error {
 	var ae *APIError
 	if errors.As(err, &ae) {
@@ -168,12 +194,15 @@ func ClassifyCheckpointError(err error) error {
 	return NewUnrecoverableInvocationError(TerminationReasonCheckpointFailed, fmt.Sprintf("Checkpoint failed: %v", err), err)
 }
 
+// APIError is a normalized backend API error used for checkpoint error
+// classification.
 type APIError struct {
 	StatusCode int
 	Code       string
 	Message    string
 }
 
+// Error returns a formatted backend API error message.
 func (e *APIError) Error() string {
 	if e == nil {
 		return "<nil>"
@@ -188,6 +217,8 @@ func startsWith(s, prefix string) bool {
 	return s[:len(prefix)] == prefix
 }
 
+// CreateErrorObjectFromError converts err into the serialized ErrorObject
+// representation used in invocation outputs and checkpoints.
 func CreateErrorObjectFromError(err error, data string) *ErrorObject {
 	if err == nil {
 		return &ErrorObject{ErrorMessage: "unknown error", ErrorData: data}

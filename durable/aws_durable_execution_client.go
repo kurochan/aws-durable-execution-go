@@ -13,14 +13,19 @@ import (
 	"github.com/aws/smithy-go"
 )
 
+// AWSDurableExecutionClient implements DurableExecutionClient with the AWS
+// Lambda Durable Execution APIs.
 type AWSDurableExecutionClient struct {
 	client *lambdasdk.Client
 }
 
+// NewAWSDurableExecutionClient wraps an existing AWS Lambda client.
 func NewAWSDurableExecutionClient(client *lambdasdk.Client) *AWSDurableExecutionClient {
 	return &AWSDurableExecutionClient{client: client}
 }
 
+// NewDefaultAWSDurableExecutionClient loads the default AWS configuration and
+// creates an AWSDurableExecutionClient.
 func NewDefaultAWSDurableExecutionClient(ctx context.Context, optFns ...func(*awsconfig.LoadOptions) error) (*AWSDurableExecutionClient, error) {
 	cfg, err := awsconfig.LoadDefaultConfig(ctx, optFns...)
 	if err != nil {
@@ -31,6 +36,7 @@ func NewDefaultAWSDurableExecutionClient(ctx context.Context, optFns ...func(*aw
 	}, nil
 }
 
+// GetExecutionState loads durable execution state from AWS Lambda.
 func (c *AWSDurableExecutionClient) GetExecutionState(ctx context.Context, input GetExecutionStateRequest) (GetExecutionStateResponse, error) {
 	if c == nil || c.client == nil {
 		return GetExecutionStateResponse{}, fmt.Errorf("aws durable execution client is not initialized")
@@ -57,6 +63,7 @@ func (c *AWSDurableExecutionClient) GetExecutionState(ctx context.Context, input
 	}, nil
 }
 
+// Checkpoint persists durable operation updates through AWS Lambda.
 func (c *AWSDurableExecutionClient) Checkpoint(ctx context.Context, input CheckpointRequest) (CheckpointResponse, error) {
 	if c == nil || c.client == nil {
 		return CheckpointResponse{}, fmt.Errorf("aws durable execution client is not initialized")

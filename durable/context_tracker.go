@@ -8,6 +8,8 @@ import (
 
 type activeOperationKey struct{}
 
+// ActiveOperation identifies the durable context currently associated with a
+// context.Context.
 type ActiveOperation struct {
 	ContextID string
 	ParentID  string
@@ -15,6 +17,7 @@ type ActiveOperation struct {
 	Mode      DurableExecutionMode
 }
 
+// WithActiveOperation stores active durable operation metadata in ctx.
 func WithActiveOperation(ctx context.Context, op ActiveOperation) context.Context {
 	if ctx == nil {
 		ctx = context.Background()
@@ -22,6 +25,7 @@ func WithActiveOperation(ctx context.Context, op ActiveOperation) context.Contex
 	return context.WithValue(ctx, activeOperationKey{}, op)
 }
 
+// GetActiveOperation returns active durable operation metadata from ctx.
 func GetActiveOperation(ctx context.Context) (ActiveOperation, bool) {
 	if ctx == nil {
 		return ActiveOperation{}, false
@@ -30,6 +34,8 @@ func GetActiveOperation(ctx context.Context) (ActiveOperation, bool) {
 	return op, ok
 }
 
+// ValidateContextUsage terminates the invocation when a durable operation is
+// called with a context from a different DurableContext.
 func ValidateContextUsage(ctx context.Context, operationContextID, operationName string, tm *TerminationManager) {
 	active, ok := GetActiveOperation(ctx)
 	if !ok {

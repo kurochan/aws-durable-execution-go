@@ -9,34 +9,64 @@ import (
 	"time"
 )
 
+// StepContext contains metadata and helpers passed to a StepFunc.
 type StepContext struct {
+	// Logger receives log messages for the current step.
 	Logger Logger
 }
 
+// StepFunc is the function executed by DurableContext.Step.
+//
+// Step functions should be safe to retry according to the configured
+// StepSemantics and RetryStrategy.
 type StepFunc func(ctx context.Context, stepCtx StepContext) (any, error)
 
+// RetryStrategy decides whether a failed operation should be retried.
+//
+// attempt is one-based for the retry attempt being scheduled.
 type RetryStrategy func(err error, attempt int) RetryDecision
 
+// StepConfig configures DurableContext.Step.
 type StepConfig struct {
+	// RetryStrategy controls retry scheduling after a step failure. A default
+	// exponential backoff strategy is used when nil.
 	RetryStrategy RetryStrategy
-	Semantics     StepSemantics
-	Serdes        Serdes
+	// Semantics controls how interrupted started steps are treated on replay.
+	Semantics StepSemantics
+	// Serdes serializes successful step results into checkpoint payloads.
+	Serdes Serdes
 }
 
+// InvokeConfig configures DurableContext.Invoke.
 type InvokeConfig struct {
+	// PayloadSerdes serializes the invocation payload.
 	PayloadSerdes Serdes
-	ResultSerdes  Serdes
+	// ResultSerdes deserializes the invoked function result.
+	ResultSerdes Serdes
 }
 
+// ChildFunc is executed inside a child DurableContext.
 type ChildFunc func(ctx context.Context, child *DurableContext) (any, error)
 
+// ChildConfig configures DurableContext.RunInChildContext.
 type ChildConfig struct {
-	Serdes           Serdes
-	SubType          OperationSubType
+	// Serdes serializes the child context result.
+	Serdes Serdes
+	// SubType identifies the child context operation subtype in checkpoints.
+	SubType OperationSubType
+	// SummaryGenerator optionally stores a compact summary instead of the full
+	// result when the child context needs replay-child reconstruction.
 	SummaryGenerator func(value any) string
-	ErrorMapper      func(error) error
+	// ErrorMapper can rewrite child errors before they are returned.
+	ErrorMapper func(error) error
 }
 
+// DurableContext schedules durable workflow operations for one handler
+// invocation.
+//
+// DurableContext is passed to a DurableExecutionHandler. Its methods create
+// deterministic operation IDs from call order, so durable operations must be
+// called in the same order on every replay.
 type DurableContext struct {
 	mu sync.Mutex
 
@@ -49,6 +79,10 @@ type DurableContext struct {
 	logger      Logger
 }
 
+// NewDurableContext constructs a DurableContext for an execution context.
+//
+// Most applications should use WithDurableExecution instead of constructing a
+// DurableContext directly.
 func NewDurableContext(execCtx *ExecutionContext, mode DurableExecutionMode, logger Logger, stepPrefix, parentID string, checkpoint *CheckpointManager) *DurableContext {
 	if logger == nil {
 		logger = NopLogger{}
@@ -125,6 +159,11 @@ func operationErrorFromStepData(stepData *Operation, fallback error) error {
 	return errors.New("operation failed")
 }
 
+// Step runs fn as a durable step and returns a future for its result.
+//
+// On replay, a completed step returns its checkpointed result without running
+// fn again. Failed steps are retried according to cfg.RetryStrategy. Step names
+// are part of replay validation and should be stable.
 func (c *DurableContext) Step(ctx context.Context, name string, fn StepFunc, cfg *StepConfig) *Future[any] {
 	ValidateContextUsage(ctx, c.stepPrefix, "step", c.execCtx.TerminationManager())
 	return withModeManagement(c, func() *Future[any] {
@@ -322,6 +361,11 @@ func (c *DurableContext) executeStepPhase1(ctx context.Context, stepID, name str
 	}
 }
 
+// Wait schedules a durable timer and returns a future that completes after the
+// backend marks the wait operation as succeeded.
+//
+// Non-positive durations are normalized to one second. While the timer is
+// pending, WithDurableExecution returns InvocationStatusPending.
 func (c *DurableContext) Wait(ctx context.Context, name string, duration Duration) *Future[struct{}] {
 	ValidateContextUsage(ctx, c.stepPrefix, "wait", c.execCtx.TerminationManager())
 	return withModeManagement(c, func() *Future[struct{}] {
@@ -402,6 +446,12 @@ func (c *DurableContext) Wait(ctx context.Context, name string, duration Duratio
 	})
 }
 
+// Invoke schedules a chained Lambda invocation and returns a future for its
+// result.
+//
+// functionName is passed through to the durable backend. input is serialized
+// with cfg.PayloadSerdes or JSONSerdes, and successful results are deserialized
+// with cfg.ResultSerdes or JSONSerdes.
 func (c *DurableContext) Invoke(ctx context.Context, name string, functionName string, input any, cfg *InvokeConfig) *Future[any] {
 	ValidateContextUsage(ctx, c.stepPrefix, "invoke", c.execCtx.TerminationManager())
 	return withModeManagement(c, func() *Future[any] {
@@ -512,6 +562,11 @@ func (c *DurableContext) newChildContext(mode DurableExecutionMode, stepPrefix, 
 	return NewDurableContext(c.execCtx, mode, c.logger, stepPrefix, parentID, c.checkpoint)
 }
 
+// RunInChildContext executes fn with a child DurableContext and checkpoints the
+// child context as one durable operation.
+//
+// Child contexts are useful for grouping nested operations and for Map and
+// Parallel internals. name and cfg.SubType are part of replay validation.
 func (c *DurableContext) RunInChildContext(ctx context.Context, name string, fn ChildFunc, cfg *ChildConfig) *Future[any] {
 	ValidateContextUsage(ctx, c.stepPrefix, "runInChildContext", c.execCtx.TerminationManager())
 	return withModeManagement(c, func() *Future[any] {

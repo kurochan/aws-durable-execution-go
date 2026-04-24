@@ -69,6 +69,12 @@ func (c *DurableContext) callbackResolvedOrRejectedFuture(stepID, name string, s
 	return NewRejectedFuture[any](callbackErrorFromOperation(stepData)), callbackID, nil
 }
 
+// CreateCallback creates a durable callback operation and returns its callback
+// ID plus a promise for the eventual callback result.
+//
+// The callback ID is intended to be given to an external system. The returned
+// promise completes when the durable backend records callback success, failure,
+// or timeout.
 func (c *DurableContext) CreateCallback(ctx context.Context, name string, cfg *CreateCallbackConfig) *Future[CreateCallbackResult] {
 	ValidateContextUsage(ctx, c.stepPrefix, "createCallback", c.execCtx.TerminationManager())
 	return withModeManagement(c, func() *Future[CreateCallbackResult] {
@@ -161,6 +167,12 @@ func (c *DurableContext) CreateCallback(ctx context.Context, name string, cfg *C
 	})
 }
 
+// WaitForCallback creates a callback, runs submitter in a durable step, and
+// waits for the callback result.
+//
+// submitter receives the callback ID and should send it to the external system
+// that will complete the callback. submitter failures follow cfg.RetryStrategy
+// when provided.
 func (c *DurableContext) WaitForCallback(ctx context.Context, name string, submitter WaitForCallbackSubmitterFunc, cfg *WaitForCallbackConfig) *Future[any] {
 	ValidateContextUsage(ctx, c.stepPrefix, "waitForCallback", c.execCtx.TerminationManager())
 	return withModeManagement(c, func() *Future[any] {
@@ -253,6 +265,12 @@ func (c *DurableContext) WaitForCallback(ctx context.Context, name string, submi
 	})
 }
 
+// WaitForCondition repeatedly runs check until cfg.WaitStrategy decides to
+// stop waiting.
+//
+// The state returned by check is checkpointed between attempts. When the wait
+// strategy returns ShouldContinue, the SDK schedules a retry delay and the
+// invocation becomes pending until the backend resumes it.
 func (c *DurableContext) WaitForCondition(ctx context.Context, name string, check WaitForConditionCheckFunc, cfg *WaitForConditionConfig) *Future[any] {
 	ValidateContextUsage(ctx, c.stepPrefix, "waitForCondition", c.execCtx.TerminationManager())
 	return withModeManagement(c, func() *Future[any] {

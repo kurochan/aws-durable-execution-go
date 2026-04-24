@@ -10,17 +10,36 @@ import (
 
 const lambdaResponseSizeLimit = 6*1024*1024 - 50
 
+// DurableExecutionHandler is the user handler executed inside a durable
+// invocation.
+//
+// event is the customer payload extracted from the execution operation in the
+// invocation input. dctx is used to schedule durable operations. The handler
+// should call Await on futures whose results are required before returning.
 type DurableExecutionHandler func(ctx context.Context, event any, dctx *DurableContext) (any, error)
 
+// DurableExecutionConfig configures WithDurableExecution.
 type DurableExecutionConfig struct {
-	Client    DurableExecutionClient
-	Logger    Logger
+	// Client persists and loads durable execution state.
+	Client DurableExecutionClient
+	// Logger receives SDK log messages. NopLogger is used when Logger is nil.
+	Logger Logger
+	// RequestID is optional metadata for the current platform invocation.
 	RequestID string
-	TenantID  string
+	// TenantID is optional metadata for multi-tenant deployments.
+	TenantID string
 }
 
+// WrappedHandler is the handler shape returned by WithDurableExecution.
 type WrappedHandler func(ctx context.Context, input InvocationInput) (InvocationOutput, error)
 
+// WithDurableExecution wraps a DurableExecutionHandler with replay,
+// checkpointing, and pending-status handling.
+//
+// The returned handler consumes InvocationInput from the durable backend. It
+// returns InvocationStatusPending when execution stopped because a durable wait,
+// callback, retry timer, or child operation is still pending. Infrastructure and
+// unrecoverable invocation errors are returned as Go errors.
 func WithDurableExecution(handler DurableExecutionHandler, config DurableExecutionConfig) WrappedHandler {
 	return func(ctx context.Context, input InvocationInput) (InvocationOutput, error) {
 		execCtx, mode, checkpointToken, err := InitializeExecutionContext(ctx, input, config.Client, config.RequestID, config.TenantID)

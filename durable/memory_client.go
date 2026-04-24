@@ -7,13 +7,15 @@ import (
 	"time"
 )
 
-// InMemoryClient is a local DurableExecutionClient implementation for tests and local execution.
+// InMemoryClient is a local DurableExecutionClient implementation for tests and
+// local execution.
 type InMemoryClient struct {
 	mu         sync.Mutex
 	tokenSeq   int
 	operations map[string]Operation // key: hashed ID
 }
 
+// NewInMemoryClient creates an empty in-memory durable backend.
 func NewInMemoryClient() *InMemoryClient {
 	return &InMemoryClient{
 		tokenSeq:   1,
@@ -21,6 +23,7 @@ func NewInMemoryClient() *InMemoryClient {
 	}
 }
 
+// GetExecutionState returns all in-memory operations.
 func (c *InMemoryClient) GetExecutionState(_ context.Context, _ GetExecutionStateRequest) (GetExecutionStateResponse, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -33,6 +36,7 @@ func (c *InMemoryClient) GetExecutionState(_ context.Context, _ GetExecutionStat
 	return GetExecutionStateResponse{Operations: ops}, nil
 }
 
+// Checkpoint applies operation updates to the in-memory store.
 func (c *InMemoryClient) Checkpoint(_ context.Context, input CheckpointRequest) (CheckpointResponse, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -141,12 +145,14 @@ func (c *InMemoryClient) Checkpoint(_ context.Context, input CheckpointRequest) 
 	}, nil
 }
 
+// SetOperation inserts or replaces an operation in the in-memory store.
 func (c *InMemoryClient) SetOperation(op Operation) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.operations[op.ID] = op
 }
 
+// CompleteCallback marks an in-memory callback as succeeded.
 func (c *InMemoryClient) CompleteCallback(callbackID string, payload string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -165,6 +171,7 @@ func (c *InMemoryClient) CompleteCallback(callbackID string, payload string) {
 	c.operations[callbackID] = op
 }
 
+// FailCallback marks an in-memory callback as failed or timed out.
 func (c *InMemoryClient) FailCallback(callbackID string, errObj *ErrorObject, timedOut bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()

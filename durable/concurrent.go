@@ -409,6 +409,12 @@ func (c *DurableContext) executeConcurrentlyInternal(
 	})
 }
 
+// ExecuteConcurrently executes durable child contexts for items with optional
+// concurrency and completion controls.
+//
+// It is the lower-level primitive behind Map and Parallel. Most callers should
+// prefer those typed helpers unless they need custom ConcurrentExecutionItem
+// metadata or operation subtypes.
 func (c *DurableContext) ExecuteConcurrently(
 	ctx context.Context,
 	name string,
@@ -455,6 +461,12 @@ func parallelSummaryGenerator(result *BatchResult) string {
 	return string(b)
 }
 
+// Map applies mapFunc to each item in a durable child context and returns a
+// BatchResult.
+//
+// Each item receives a stable index and a child DurableContext. cfg can limit
+// concurrency, customize item names, and stop scheduling after completion
+// criteria are met.
 func (c *DurableContext) Map(
 	ctx context.Context,
 	name string,
@@ -507,6 +519,11 @@ func (c *DurableContext) Map(
 	})
 }
 
+// Parallel executes named branches in durable child contexts and returns a
+// BatchResult.
+//
+// Branch order is part of replay behavior. Keep the branch slice stable across
+// replays.
 func (c *DurableContext) Parallel(
 	ctx context.Context,
 	name string,

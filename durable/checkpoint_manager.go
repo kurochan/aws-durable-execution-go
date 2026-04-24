@@ -32,6 +32,11 @@ type operationInfo struct {
 	endTimestamp *time.Time
 }
 
+// CheckpointManager batches checkpoint writes and tracks local operation
+// lifecycle state for one invocation.
+//
+// It is part of the SDK runtime; most applications should not need to use it
+// directly.
 type CheckpointManager struct {
 	mu sync.Mutex
 
@@ -56,6 +61,7 @@ type CheckpointManager struct {
 	terminationReason TerminationReason
 }
 
+// NewCheckpointManager creates a CheckpointManager for an execution.
 func NewCheckpointManager(
 	durableExecutionArn string,
 	stepData map[string]Operation,
@@ -81,12 +87,14 @@ func NewCheckpointManager(
 	}
 }
 
+// SetTerminating prevents new checkpoint work from being enqueued.
 func (m *CheckpointManager) SetTerminating() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.terminating = true
 }
 
+// MarkAncestorFinished records that a child-context ancestor has completed.
 func (m *CheckpointManager) MarkAncestorFinished(stepID string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -113,6 +121,8 @@ func (m *CheckpointManager) hasFinishedAncestor(stepID string) bool {
 	return false
 }
 
+// Checkpoint enqueues one operation update and waits until it has been flushed
+// to the backend.
 func (m *CheckpointManager) Checkpoint(ctx context.Context, stepID string, update OperationUpdate) error {
 	if ctx == nil {
 		ctx = context.Background()
@@ -139,6 +149,8 @@ func (m *CheckpointManager) Checkpoint(ctx context.Context, stepID string, updat
 	}
 }
 
+// ForceCheckpoint flushes pending backend state without adding an operation
+// update.
 func (m *CheckpointManager) ForceCheckpoint(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
@@ -164,6 +176,7 @@ func (m *CheckpointManager) ForceCheckpoint(ctx context.Context) error {
 	}
 }
 
+// WaitForQueueCompletion waits until all queued checkpoint writes complete.
 func (m *CheckpointManager) WaitForQueueCompletion(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
@@ -344,6 +357,7 @@ func isTerminalStatus(status OperationStatus) bool {
 	}
 }
 
+// MarkOperationState updates local lifecycle state for a durable operation.
 func (m *CheckpointManager) MarkOperationState(stepID string, state OperationLifecycleState, metadata OperationMetadata, endTimestamp *time.Time) {
 	m.mu.Lock()
 	op := m.operations[stepID]
@@ -363,6 +377,7 @@ func (m *CheckpointManager) MarkOperationState(stepID string, state OperationLif
 	}
 }
 
+// MarkOperationAwaited records that a future for stepID has been awaited.
 func (m *CheckpointManager) MarkOperationAwaited(stepID string) {
 	m.mu.Lock()
 	op := m.operations[stepID]
@@ -377,6 +392,7 @@ func (m *CheckpointManager) MarkOperationAwaited(stepID string) {
 	m.checkAndMaybeTerminate()
 }
 
+// GetOperationState returns the local lifecycle state for stepID.
 func (m *CheckpointManager) GetOperationState(stepID string) OperationLifecycleState {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -387,6 +403,8 @@ func (m *CheckpointManager) GetOperationState(stepID string) OperationLifecycleS
 	return op.state
 }
 
+// WaitForRetryTimer waits for a retry timer and then polls for operation
+// completion.
 func (m *CheckpointManager) WaitForRetryTimer(ctx context.Context, stepID string) error {
 	if ctx == nil {
 		ctx = context.Background()
@@ -422,6 +440,8 @@ func (m *CheckpointManager) WaitForRetryTimer(ctx context.Context, stepID string
 	return m.WaitForStatusChange(ctx, stepID)
 }
 
+// WaitForStatusChange polls backend state until stepID reaches a terminal
+// status or the context is canceled.
 func (m *CheckpointManager) WaitForStatusChange(ctx context.Context, stepID string) error {
 	if ctx == nil {
 		ctx = context.Background()
