@@ -233,3 +233,7 @@ The Lambda sample is available here.
 
 - [examples/lambda-sample/main.go](examples/lambda-sample/main.go)
 - [examples/lambda-sample/README.md](examples/lambda-sample/README.md)
+
+## Related Blog
+
+- [CyberAgent Developers Blog article about Durable Execution and this project (Japanese)](https://developers.cyberagent.co.jp/blog/archives/63635/)
