@@ -204,8 +204,8 @@ Implement `DurableExecutionClient` to plug in a backend client.
 
 ```go
 type DurableExecutionClient interface {
-	GetExecutionState(input GetExecutionStateRequest) (GetExecutionStateResponse, error)
-	Checkpoint(input CheckpointRequest) (CheckpointResponse, error)
+	GetExecutionState(ctx context.Context, input GetExecutionStateRequest) (GetExecutionStateResponse, error)
+	Checkpoint(ctx context.Context, input CheckpointRequest) (CheckpointResponse, error)
 }
 ```
 

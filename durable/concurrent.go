@@ -217,12 +217,14 @@ func (cc *concurrencyController) executeItemsConcurrently(
 		}
 		mu.Unlock()
 
+		entityID := parentContext.createStepID()
+
 		wg.Add(1)
-		go func(itemIndex int, it ConcurrentExecutionItem) {
+		go func(itemIndex int, it ConcurrentExecutionItem, childEntityID string) {
 			defer wg.Done()
 			defer func() { <-sem }()
 
-			res, err := parentContext.RunInChildContext(ctx, itemDisplayName(it), func(childCtx context.Context, child *DurableContext) (any, error) {
+			res, err := parentContext.runInChildContextWithID(ctx, childEntityID, itemDisplayName(it), func(childCtx context.Context, child *DurableContext) (any, error) {
 				return executor(it, child)
 			}, &ChildConfig{
 				SubType: config.IterationSubType,
@@ -247,7 +249,7 @@ func (cc *concurrencyController) executeItemsConcurrently(
 				Index:  it.Index,
 				Status: BatchItemStatusSucceeded,
 			}
-		}(index, item)
+		}(index, item, entityID)
 	}
 
 	wg.Wait()

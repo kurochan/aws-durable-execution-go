@@ -218,3 +218,46 @@ func TestMapAndParallel(t *testing.T) {
 		t.Fatalf("unexpected parallel result summary: %#v", decoded)
 	}
 }
+
+func TestMapUsesStableChildContextIDs(t *testing.T) {
+	client := NewInMemoryClient()
+	wrapped := WithDurableExecution(func(ctx context.Context, _ any, dctx *DurableContext) (any, error) {
+		items := []any{0, 1, 2}
+		result, err := dctx.Map(ctx, "map-stable-ids", items, func(child *DurableContext, _ any, index int, _ []any) (any, error) {
+			time.Sleep(time.Duration(len(items)-index) * 10 * time.Millisecond)
+			return child.Step(context.Background(), fmt.Sprintf("map-%d", index), func(_ context.Context, _ StepContext) (any, error) {
+				return index, nil
+			}, nil).Await(context.Background())
+		}, &MapConfig{MaxConcurrency: len(items)}).Await(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return result.SuccessCount(), nil
+	}, DurableExecutionConfig{Client: client})
+
+	out, err := wrapped(context.Background(), newInvocationInput("arn:test:map-stable-ids", "tok-map-stable-ids", `{}`))
+	if err != nil {
+		t.Fatalf("wrapped returned error: %v", err)
+	}
+	if out.Status != InvocationStatusSucceeded {
+		t.Fatalf("expected SUCCEEDED, got %s", out.Status)
+	}
+
+	state, err := client.GetExecutionState(context.Background(), GetExecutionStateRequest{})
+	if err != nil {
+		t.Fatalf("failed to get execution state: %v", err)
+	}
+	parentsByName := map[string]string{}
+	for _, op := range state.Operations {
+		if op.Type == OperationTypeStep {
+			parentsByName[op.Name] = op.ParentID
+		}
+	}
+	for i := range []int{0, 1, 2} {
+		name := fmt.Sprintf("map-%d", i)
+		wantParent := HashID(fmt.Sprintf("1-%d", i+1))
+		if parentsByName[name] != wantParent {
+			t.Fatalf("step %s parent = %q, want %q", name, parentsByName[name], wantParent)
+		}
+	}
+}

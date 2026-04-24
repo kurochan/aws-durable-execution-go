@@ -124,7 +124,7 @@ func (c *DurableContext) CreateCallback(ctx context.Context, name string, cfg *C
 						update.CallbackOptions.HeartbeatTimeoutSeconds = cfg.HeartbeatTimeout.ToSeconds()
 					}
 				}
-				if err := c.checkpoint.Checkpoint(context.Background(), stepID, update); err != nil {
+				if err := c.checkpoint.Checkpoint(ctx, stepID, update); err != nil {
 					phaseErr = err
 					return
 				}
@@ -263,7 +263,7 @@ func (c *DurableContext) WaitForCondition(ctx context.Context, name string, chec
 
 		go func() {
 			defer close(phaseDone)
-			phaseResult, phaseErr = c.executeWaitForConditionPhase1(stepID, name, check, cfg)
+			phaseResult, phaseErr = c.executeWaitForConditionPhase1(ctx, stepID, name, check, cfg)
 		}()
 
 		return NewFuture(func(awaitCtx context.Context) (any, error) {
@@ -278,7 +278,10 @@ func (c *DurableContext) WaitForCondition(ctx context.Context, name string, chec
 	})
 }
 
-func (c *DurableContext) executeWaitForConditionPhase1(stepID, name string, check WaitForConditionCheckFunc, cfg *WaitForConditionConfig) (any, error) {
+func (c *DurableContext) executeWaitForConditionPhase1(ctx context.Context, stepID, name string, check WaitForConditionCheckFunc, cfg *WaitForConditionConfig) (any, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if cfg == nil || cfg.WaitStrategy == nil {
 		return nil, errors.New("waitForCondition requires config with waitStrategy and initialState")
 	}
@@ -321,7 +324,7 @@ func (c *DurableContext) executeWaitForConditionPhase1(stepID, name string, chec
 				return nil, NewWaitForConditionError("waitForCondition failed", nil, "")
 			case OperationStatusPending:
 				c.checkpoint.MarkOperationState(stepID, OperationLifecycleRetryWaiting, metadata, stepData.StepDetails.NextAttemptTimestamp)
-				if err := c.checkpoint.WaitForRetryTimer(context.Background(), stepID); err != nil {
+				if err := c.checkpoint.WaitForRetryTimer(ctx, stepID); err != nil {
 					return nil, err
 				}
 				continue
@@ -345,7 +348,7 @@ func (c *DurableContext) executeWaitForConditionPhase1(stepID, name string, chec
 		}
 
 		if stepData == nil || stepData.Status != OperationStatusStarted {
-			if err := c.checkpoint.Checkpoint(context.Background(), stepID, OperationUpdate{
+			if err := c.checkpoint.Checkpoint(ctx, stepID, OperationUpdate{
 				ID:       stepID,
 				ParentID: c.parentID,
 				Action:   OperationActionStart,
@@ -361,7 +364,7 @@ func (c *DurableContext) executeWaitForConditionPhase1(stepID, name string, chec
 		nextState, err := check(currentState, WaitForConditionContext{Logger: c.logger})
 		if err != nil {
 			errObj := CreateErrorObjectFromError(err, "")
-			_ = c.checkpoint.Checkpoint(context.Background(), stepID, OperationUpdate{
+			_ = c.checkpoint.Checkpoint(ctx, stepID, OperationUpdate{
 				ID:       stepID,
 				ParentID: c.parentID,
 				Action:   OperationActionFail,
@@ -385,7 +388,7 @@ func (c *DurableContext) executeWaitForConditionPhase1(stepID, name string, chec
 
 		decision := cfg.WaitStrategy(normalized, attempt)
 		if !decision.ShouldContinue {
-			if err := c.checkpoint.Checkpoint(context.Background(), stepID, OperationUpdate{
+			if err := c.checkpoint.Checkpoint(ctx, stepID, OperationUpdate{
 				ID:       stepID,
 				ParentID: c.parentID,
 				Action:   OperationActionSucceed,
@@ -404,7 +407,7 @@ func (c *DurableContext) executeWaitForConditionPhase1(stepID, name string, chec
 		if delay <= 0 {
 			delay = 1
 		}
-		if err := c.checkpoint.Checkpoint(context.Background(), stepID, OperationUpdate{
+		if err := c.checkpoint.Checkpoint(ctx, stepID, OperationUpdate{
 			ID:       stepID,
 			ParentID: c.parentID,
 			Action:   OperationActionRetry,
@@ -421,7 +424,7 @@ func (c *DurableContext) executeWaitForConditionPhase1(stepID, name string, chec
 
 		end := time.Now().Add(time.Duration(delay) * time.Second)
 		c.checkpoint.MarkOperationState(stepID, OperationLifecycleRetryWaiting, metadata, &end)
-		if err := c.checkpoint.WaitForRetryTimer(context.Background(), stepID); err != nil {
+		if err := c.checkpoint.WaitForRetryTimer(ctx, stepID); err != nil {
 			return nil, err
 		}
 	}

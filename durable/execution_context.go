@@ -1,6 +1,7 @@
 package durable
 
 import (
+	"context"
 	"fmt"
 	"sync"
 )
@@ -43,7 +44,10 @@ func (e *ExecutionContext) setStepData(op Operation) {
 	e.stepDataMu.Unlock()
 }
 
-func InitializeExecutionContext(input InvocationInput, client DurableExecutionClient, requestID, tenantID string) (*ExecutionContext, DurableExecutionMode, string, error) {
+func InitializeExecutionContext(ctx context.Context, input InvocationInput, client DurableExecutionClient, requestID, tenantID string) (*ExecutionContext, DurableExecutionMode, string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if input.DurableExecutionArn == "" || input.CheckpointToken == "" {
 		return nil, "", "", fmt.Errorf("unexpected payload provided to start durable execution")
 	}
@@ -55,7 +59,7 @@ func InitializeExecutionContext(input InvocationInput, client DurableExecutionCl
 	operations = append(operations, input.InitialExecutionState.Operations...)
 	marker := input.InitialExecutionState.NextMarker
 	for marker != "" {
-		resp, err := client.GetExecutionState(GetExecutionStateRequest{
+		resp, err := client.GetExecutionState(ctx, GetExecutionStateRequest{
 			DurableExecutionArn: input.DurableExecutionArn,
 			CheckpointToken:     input.CheckpointToken,
 			Marker:              marker,

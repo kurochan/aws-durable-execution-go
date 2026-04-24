@@ -23,7 +23,7 @@ type WrappedHandler func(ctx context.Context, input InvocationInput) (Invocation
 
 func WithDurableExecution(handler DurableExecutionHandler, config DurableExecutionConfig) WrappedHandler {
 	return func(ctx context.Context, input InvocationInput) (InvocationOutput, error) {
-		execCtx, mode, checkpointToken, err := InitializeExecutionContext(input, config.Client, config.RequestID, config.TenantID)
+		execCtx, mode, checkpointToken, err := InitializeExecutionContext(ctx, input, config.Client, config.RequestID, config.TenantID)
 		if err != nil {
 			return InvocationOutput{}, err
 		}
@@ -51,7 +51,7 @@ func WithDurableExecution(handler DurableExecutionHandler, config DurableExecuti
 		select {
 		case term := <-execCtx.TerminationManager().Channel():
 			checkpoint.SetTerminating()
-			_ = checkpoint.WaitForQueueCompletion(context.Background())
+			_ = checkpoint.WaitForQueueCompletion(ctx)
 
 			switch term.Reason {
 			case TerminationReasonCheckpointFailed:
@@ -70,7 +70,7 @@ func WithDurableExecution(handler DurableExecutionHandler, config DurableExecuti
 				return InvocationOutput{Status: InvocationStatusPending}, nil
 			}
 		case result := <-handlerCh:
-			_ = checkpoint.WaitForQueueCompletion(context.Background())
+			_ = checkpoint.WaitForQueueCompletion(ctx)
 			if result.err != nil {
 				if IsUnrecoverableInvocationError(result.err) {
 					return InvocationOutput{}, result.err
@@ -86,7 +86,7 @@ func WithDurableExecution(handler DurableExecutionHandler, config DurableExecuti
 
 			if len(serialized) > lambdaResponseSizeLimit {
 				stepID := fmt.Sprintf("execution-result-%d", time.Now().UnixNano())
-				if err := checkpoint.Checkpoint(context.Background(), stepID, OperationUpdate{
+				if err := checkpoint.Checkpoint(ctx, stepID, OperationUpdate{
 					ID:      stepID,
 					Action:  OperationActionSucceed,
 					Type:    OperationTypeExecution,
@@ -94,7 +94,7 @@ func WithDurableExecution(handler DurableExecutionHandler, config DurableExecuti
 				}); err != nil {
 					return InvocationOutput{}, err
 				}
-				_ = checkpoint.WaitForQueueCompletion(context.Background())
+				_ = checkpoint.WaitForQueueCompletion(ctx)
 				return InvocationOutput{Status: InvocationStatusSucceeded, Result: ""}, nil
 			}
 			return InvocationOutput{Status: InvocationStatusSucceeded, Result: string(serialized)}, nil

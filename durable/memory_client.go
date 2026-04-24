@@ -1,6 +1,7 @@
 package durable
 
 import (
+	"context"
 	"sort"
 	"sync"
 	"time"
@@ -20,7 +21,7 @@ func NewInMemoryClient() *InMemoryClient {
 	}
 }
 
-func (c *InMemoryClient) GetExecutionState(_ GetExecutionStateRequest) (GetExecutionStateResponse, error) {
+func (c *InMemoryClient) GetExecutionState(_ context.Context, _ GetExecutionStateRequest) (GetExecutionStateResponse, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.refreshTimedStatusesLocked()
@@ -32,7 +33,7 @@ func (c *InMemoryClient) GetExecutionState(_ GetExecutionStateRequest) (GetExecu
 	return GetExecutionStateResponse{Operations: ops}, nil
 }
 
-func (c *InMemoryClient) Checkpoint(input CheckpointRequest) (CheckpointResponse, error) {
+func (c *InMemoryClient) Checkpoint(_ context.Context, input CheckpointRequest) (CheckpointResponse, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.refreshTimedStatusesLocked()

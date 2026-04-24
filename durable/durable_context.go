@@ -135,7 +135,7 @@ func (c *DurableContext) Step(ctx context.Context, name string, fn StepFunc, cfg
 
 		go func() {
 			defer close(phaseDone)
-			phaseResult, phaseErr = c.executeStepPhase1(stepID, name, fn, cfg)
+			phaseResult, phaseErr = c.executeStepPhase1(ctx, stepID, name, fn, cfg)
 		}()
 
 		return NewFuture(func(awaitCtx context.Context) (any, error) {
@@ -150,7 +150,10 @@ func (c *DurableContext) Step(ctx context.Context, name string, fn StepFunc, cfg
 	})
 }
 
-func (c *DurableContext) executeStepPhase1(stepID, name string, fn StepFunc, cfg *StepConfig) (any, error) {
+func (c *DurableContext) executeStepPhase1(ctx context.Context, stepID, name string, fn StepFunc, cfg *StepConfig) (any, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if cfg == nil {
 		cfg = &StepConfig{}
 	}
@@ -185,7 +188,7 @@ func (c *DurableContext) executeStepPhase1(stepID, name string, fn StepFunc, cfg
 				return nil, operationErrorFromStepData(stepData, NewStepError("step failed", nil, ""))
 			case OperationStatusPending:
 				c.checkpoint.MarkOperationState(stepID, OperationLifecycleRetryWaiting, metadata, stepData.StepDetails.NextAttemptTimestamp)
-				if err := c.checkpoint.WaitForRetryTimer(context.Background(), stepID); err != nil {
+				if err := c.checkpoint.WaitForRetryTimer(ctx, stepID); err != nil {
 					return nil, err
 				}
 				continue
@@ -196,7 +199,7 @@ func (c *DurableContext) executeStepPhase1(stepID, name string, fn StepFunc, cfg
 					decision := retryStrategy(interrupted, attempt)
 					if !decision.ShouldRetry {
 						errObj := (&DurableOperationError{Type: "StepError", Message: interrupted.Error(), Cause: interrupted}).ToErrorObject()
-						_ = c.checkpoint.Checkpoint(context.Background(), stepID, OperationUpdate{
+						_ = c.checkpoint.Checkpoint(ctx, stepID, OperationUpdate{
 							ID:       stepID,
 							ParentID: c.parentID,
 							Action:   OperationActionFail,
@@ -213,7 +216,7 @@ func (c *DurableContext) executeStepPhase1(stepID, name string, fn StepFunc, cfg
 						delay = 1
 					}
 					end := time.Now().Add(time.Duration(delay) * time.Second)
-					_ = c.checkpoint.Checkpoint(context.Background(), stepID, OperationUpdate{
+					_ = c.checkpoint.Checkpoint(ctx, stepID, OperationUpdate{
 						ID:          stepID,
 						ParentID:    c.parentID,
 						Action:      OperationActionRetry,
@@ -224,7 +227,7 @@ func (c *DurableContext) executeStepPhase1(stepID, name string, fn StepFunc, cfg
 						StepOptions: &StepOptions{NextAttemptDelaySeconds: delay},
 					})
 					c.checkpoint.MarkOperationState(stepID, OperationLifecycleRetryWaiting, metadata, &end)
-					if err := c.checkpoint.WaitForRetryTimer(context.Background(), stepID); err != nil {
+					if err := c.checkpoint.WaitForRetryTimer(ctx, stepID); err != nil {
 						return nil, err
 					}
 					continue
@@ -241,21 +244,21 @@ func (c *DurableContext) executeStepPhase1(stepID, name string, fn StepFunc, cfg
 			Name:     name,
 		}
 		if stepData == nil || stepData.Status != OperationStatusStarted {
-			if err := c.checkpoint.Checkpoint(context.Background(), stepID, startUpdate); err != nil {
+			if err := c.checkpoint.Checkpoint(ctx, stepID, startUpdate); err != nil {
 				return nil, err
 			}
 		}
 
 		c.checkpoint.MarkOperationState(stepID, OperationLifecycleExecuting, metadata, nil)
 
-		active := WithActiveOperation(context.Background(), ActiveOperation{ContextID: stepID, ParentID: c.parentID, Mode: ExecutionMode})
+		active := WithActiveOperation(ctx, ActiveOperation{ContextID: stepID, ParentID: c.parentID, Mode: ExecutionMode})
 		result, err := fn(active, StepContext{Logger: c.logger})
 		if err == nil {
 			serialized, serr := SafeSerialize(serdes, result, stepID, name, c.execCtx.TerminationManager(), c.execCtx.DurableExecutionArn())
 			if serr != nil {
 				return nil, serr
 			}
-			if err := c.checkpoint.Checkpoint(context.Background(), stepID, OperationUpdate{
+			if err := c.checkpoint.Checkpoint(ctx, stepID, OperationUpdate{
 				ID:       stepID,
 				ParentID: c.parentID,
 				Action:   OperationActionSucceed,
@@ -284,7 +287,7 @@ func (c *DurableContext) executeStepPhase1(stepID, name string, fn StepFunc, cfg
 		decision := retryStrategy(err, currentAttempt)
 		if !decision.ShouldRetry {
 			errObj := (&DurableOperationError{Type: "StepError", Message: err.Error(), Cause: err}).ToErrorObject()
-			_ = c.checkpoint.Checkpoint(context.Background(), stepID, OperationUpdate{
+			_ = c.checkpoint.Checkpoint(ctx, stepID, OperationUpdate{
 				ID:       stepID,
 				ParentID: c.parentID,
 				Action:   OperationActionFail,
@@ -302,7 +305,7 @@ func (c *DurableContext) executeStepPhase1(stepID, name string, fn StepFunc, cfg
 			delay = 1
 		}
 		end := time.Now().Add(time.Duration(delay) * time.Second)
-		_ = c.checkpoint.Checkpoint(context.Background(), stepID, OperationUpdate{
+		_ = c.checkpoint.Checkpoint(ctx, stepID, OperationUpdate{
 			ID:          stepID,
 			ParentID:    c.parentID,
 			Action:      OperationActionRetry,
@@ -313,7 +316,7 @@ func (c *DurableContext) executeStepPhase1(stepID, name string, fn StepFunc, cfg
 			StepOptions: &StepOptions{NextAttemptDelaySeconds: delay},
 		})
 		c.checkpoint.MarkOperationState(stepID, OperationLifecycleRetryWaiting, metadata, &end)
-		if err := c.checkpoint.WaitForRetryTimer(context.Background(), stepID); err != nil {
+		if err := c.checkpoint.WaitForRetryTimer(ctx, stepID); err != nil {
 			return nil, err
 		}
 	}
@@ -347,7 +350,7 @@ func (c *DurableContext) Wait(ctx context.Context, name string, duration Duratio
 			}
 
 			if stepData == nil {
-				if err := c.checkpoint.Checkpoint(context.Background(), stepID, OperationUpdate{
+				if err := c.checkpoint.Checkpoint(ctx, stepID, OperationUpdate{
 					ID:          stepID,
 					ParentID:    c.parentID,
 					Action:      OperationActionStart,
@@ -437,7 +440,7 @@ func (c *DurableContext) Invoke(ctx context.Context, name string, functionName s
 					phaseErr = err
 					return
 				}
-				if err := c.checkpoint.Checkpoint(context.Background(), stepID, OperationUpdate{
+				if err := c.checkpoint.Checkpoint(ctx, stepID, OperationUpdate{
 					ID:                   stepID,
 					ParentID:             c.parentID,
 					Action:               OperationActionStart,
@@ -513,27 +516,34 @@ func (c *DurableContext) RunInChildContext(ctx context.Context, name string, fn 
 	ValidateContextUsage(ctx, c.stepPrefix, "runInChildContext", c.execCtx.TerminationManager())
 	return withModeManagement(c, func() *Future[any] {
 		entityID := c.createStepID()
-		phaseDone := make(chan struct{})
-		var phaseResult any
-		var phaseErr error
-
-		go func() {
-			defer close(phaseDone)
-			phaseResult, phaseErr = c.executeChildPhase1(entityID, name, fn, cfg)
-		}()
-
-		return NewFuture(func(awaitCtx context.Context) (any, error) {
-			select {
-			case <-awaitCtx.Done():
-				return nil, awaitCtx.Err()
-			case <-phaseDone:
-				return phaseResult, phaseErr
-			}
-		})
+		return c.runInChildContextWithID(ctx, entityID, name, fn, cfg)
 	})
 }
 
-func (c *DurableContext) executeChildPhase1(entityID, name string, fn ChildFunc, cfg *ChildConfig) (any, error) {
+func (c *DurableContext) runInChildContextWithID(ctx context.Context, entityID, name string, fn ChildFunc, cfg *ChildConfig) *Future[any] {
+	phaseDone := make(chan struct{})
+	var phaseResult any
+	var phaseErr error
+
+	go func() {
+		defer close(phaseDone)
+		phaseResult, phaseErr = c.executeChildPhase1(ctx, entityID, name, fn, cfg)
+	}()
+
+	return NewFuture(func(awaitCtx context.Context) (any, error) {
+		select {
+		case <-awaitCtx.Done():
+			return nil, awaitCtx.Err()
+		case <-phaseDone:
+			return phaseResult, phaseErr
+		}
+	})
+}
+
+func (c *DurableContext) executeChildPhase1(ctx context.Context, entityID, name string, fn ChildFunc, cfg *ChildConfig) (any, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if cfg == nil {
 		cfg = &ChildConfig{}
 	}
@@ -568,7 +578,7 @@ func (c *DurableContext) executeChildPhase1(entityID, name string, fn ChildFunc,
 		}
 		if stepData.ContextDetails != nil && stepData.ContextDetails.ReplayChildren {
 			child := c.newChildContext(ReplaySucceededContext, entityID, entityID)
-			active := WithActiveOperation(context.Background(), ActiveOperation{ContextID: entityID, ParentID: entityID, Mode: ReplaySucceededContext})
+			active := WithActiveOperation(ctx, ActiveOperation{ContextID: entityID, ParentID: entityID, Mode: ReplaySucceededContext})
 			return fn(active, child)
 		}
 		if stepData.ContextDetails != nil {
@@ -578,7 +588,7 @@ func (c *DurableContext) executeChildPhase1(entityID, name string, fn ChildFunc,
 	}
 
 	if stepData == nil {
-		if err := c.checkpoint.Checkpoint(context.Background(), entityID, OperationUpdate{
+		if err := c.checkpoint.Checkpoint(ctx, entityID, OperationUpdate{
 			ID:       entityID,
 			ParentID: c.parentID,
 			Action:   OperationActionStart,
@@ -592,12 +602,12 @@ func (c *DurableContext) executeChildPhase1(entityID, name string, fn ChildFunc,
 
 	childMode := determineChildReplayMode(c.execCtx, entityID)
 	child := c.newChildContext(childMode, entityID, entityID)
-	active := WithActiveOperation(context.Background(), ActiveOperation{ContextID: entityID, ParentID: c.parentID, Mode: childMode})
+	active := WithActiveOperation(ctx, ActiveOperation{ContextID: entityID, ParentID: c.parentID, Mode: childMode})
 	result, err := fn(active, child)
 	if err != nil {
 		c.checkpoint.MarkAncestorFinished(entityID)
 		errObj := (&DurableOperationError{Type: "ChildContextError", Message: err.Error(), Cause: err}).ToErrorObject()
-		_ = c.checkpoint.Checkpoint(context.Background(), entityID, OperationUpdate{
+		_ = c.checkpoint.Checkpoint(ctx, entityID, OperationUpdate{
 			ID:       entityID,
 			ParentID: c.parentID,
 			Action:   OperationActionFail,
@@ -633,7 +643,7 @@ func (c *DurableContext) executeChildPhase1(entityID, name string, fn ChildFunc,
 	}
 
 	c.checkpoint.MarkAncestorFinished(entityID)
-	if err := c.checkpoint.Checkpoint(context.Background(), entityID, OperationUpdate{
+	if err := c.checkpoint.Checkpoint(ctx, entityID, OperationUpdate{
 		ID:             entityID,
 		ParentID:       c.parentID,
 		Action:         OperationActionSucceed,

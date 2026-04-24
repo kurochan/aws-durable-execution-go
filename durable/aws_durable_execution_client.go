@@ -31,11 +31,14 @@ func NewDefaultAWSDurableExecutionClient(ctx context.Context, optFns ...func(*aw
 	}, nil
 }
 
-func (c *AWSDurableExecutionClient) GetExecutionState(input GetExecutionStateRequest) (GetExecutionStateResponse, error) {
+func (c *AWSDurableExecutionClient) GetExecutionState(ctx context.Context, input GetExecutionStateRequest) (GetExecutionStateResponse, error) {
 	if c == nil || c.client == nil {
 		return GetExecutionStateResponse{}, fmt.Errorf("aws durable execution client is not initialized")
 	}
-	out, err := c.client.GetDurableExecutionState(context.Background(), &lambdasdk.GetDurableExecutionStateInput{
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	out, err := c.client.GetDurableExecutionState(ctx, &lambdasdk.GetDurableExecutionStateInput{
 		DurableExecutionArn: &input.DurableExecutionArn,
 		CheckpointToken:     &input.CheckpointToken,
 		Marker:              optionalString(input.Marker),
@@ -54,15 +57,18 @@ func (c *AWSDurableExecutionClient) GetExecutionState(input GetExecutionStateReq
 	}, nil
 }
 
-func (c *AWSDurableExecutionClient) Checkpoint(input CheckpointRequest) (CheckpointResponse, error) {
+func (c *AWSDurableExecutionClient) Checkpoint(ctx context.Context, input CheckpointRequest) (CheckpointResponse, error) {
 	if c == nil || c.client == nil {
 		return CheckpointResponse{}, fmt.Errorf("aws durable execution client is not initialized")
+	}
+	if ctx == nil {
+		ctx = context.Background()
 	}
 	updates, err := convertUpdatesToAWS(input.Updates)
 	if err != nil {
 		return CheckpointResponse{}, err
 	}
-	out, err := c.client.CheckpointDurableExecution(context.Background(), &lambdasdk.CheckpointDurableExecutionInput{
+	out, err := c.client.CheckpointDurableExecution(ctx, &lambdasdk.CheckpointDurableExecutionInput{
 		DurableExecutionArn: &input.DurableExecutionArn,
 		CheckpointToken:     &input.CheckpointToken,
 		Updates:             updates,

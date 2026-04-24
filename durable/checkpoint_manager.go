@@ -15,9 +15,15 @@ const (
 )
 
 type queuedCheckpoint struct {
+	ctx    context.Context
 	stepID string
 	update OperationUpdate
 	done   chan error
+}
+
+type queuedForceCheckpoint struct {
+	ctx  context.Context
+	done chan error
 }
 
 type operationInfo struct {
@@ -38,7 +44,7 @@ type CheckpointManager struct {
 	logger              Logger
 
 	queue      []queuedCheckpoint
-	forceQueue []chan error
+	forceQueue []queuedForceCheckpoint
 	processing bool
 
 	terminating bool
@@ -118,7 +124,7 @@ func (m *CheckpointManager) Checkpoint(ctx context.Context, stepID string, updat
 		return fmt.Errorf("checkpoint skipped due to termination/finished ancestor")
 	}
 	done := make(chan error, 1)
-	m.queue = append(m.queue, queuedCheckpoint{stepID: stepID, update: update, done: done})
+	m.queue = append(m.queue, queuedCheckpoint{ctx: ctx, stepID: stepID, update: update, done: done})
 	if !m.processing {
 		m.processing = true
 		go m.processLoop()
@@ -143,7 +149,7 @@ func (m *CheckpointManager) ForceCheckpoint(ctx context.Context) error {
 		return fmt.Errorf("force checkpoint skipped due to termination")
 	}
 	done := make(chan error, 1)
-	m.forceQueue = append(m.forceQueue, done)
+	m.forceQueue = append(m.forceQueue, queuedForceCheckpoint{ctx: ctx, done: done})
 	if !m.processing {
 		m.processing = true
 		go m.processLoop()
@@ -201,7 +207,7 @@ func (m *CheckpointManager) processLoop() {
 				it.done <- classified
 			}
 			for _, f := range force {
-				f <- classified
+				f.done <- classified
 			}
 			m.failAllPending(classified)
 			m.mu.Lock()
@@ -214,7 +220,7 @@ func (m *CheckpointManager) processLoop() {
 			it.done <- nil
 		}
 		for _, f := range force {
-			f <- nil
+			f.done <- nil
 		}
 	}
 }
@@ -226,13 +232,13 @@ func (m *CheckpointManager) failAllPending(err error) {
 		it.done <- err
 	}
 	for _, f := range m.forceQueue {
-		f <- err
+		f.done <- err
 	}
 	m.queue = nil
 	m.forceQueue = nil
 }
 
-func (m *CheckpointManager) nextBatch() ([]queuedCheckpoint, []chan error, bool) {
+func (m *CheckpointManager) nextBatch() ([]queuedCheckpoint, []queuedForceCheckpoint, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -261,7 +267,21 @@ func (m *CheckpointManager) nextBatch() ([]queuedCheckpoint, []chan error, bool)
 	return batch, force, true
 }
 
-func (m *CheckpointManager) processBatch(batch []queuedCheckpoint, _ []chan error) error {
+func checkpointContext(batch []queuedCheckpoint, force []queuedForceCheckpoint) context.Context {
+	for _, item := range batch {
+		if item.ctx != nil {
+			return item.ctx
+		}
+	}
+	for _, item := range force {
+		if item.ctx != nil {
+			return item.ctx
+		}
+	}
+	return context.Background()
+}
+
+func (m *CheckpointManager) processBatch(batch []queuedCheckpoint, force []queuedForceCheckpoint) error {
 	updates := make([]OperationUpdate, 0, len(batch))
 	for _, item := range batch {
 		u := item.update
@@ -278,7 +298,7 @@ func (m *CheckpointManager) processBatch(batch []queuedCheckpoint, _ []chan erro
 		updates = append(updates, u)
 	}
 
-	resp, err := m.client.Checkpoint(CheckpointRequest{
+	resp, err := m.client.Checkpoint(checkpointContext(batch, force), CheckpointRequest{
 		DurableExecutionArn: m.durableExecutionArn,
 		CheckpointToken:     m.currentToken,
 		Updates:             updates,
